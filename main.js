@@ -32,7 +32,7 @@ let currentFilteredVideos = [];
 const VIDEOS_PER_LOAD = 8;
 let loadedVideosCount = 0;
 let isRendering = false;
-const API_ENDPOINT = 'https://youtube-issue-worker.tjdrbs28.workers.dev';
+const API_ENDPOINT = 'https://yt-feed-hub.tjdrbs28.workers.dev';
 
 const browserLanguage = (navigator.language || 'en').split('-')[0];
 const FILTER_CONFIG = {
