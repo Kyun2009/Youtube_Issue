@@ -20,6 +20,10 @@ function buildPublishedAfter(period) {
   return start.toISOString();
 }
 
+function buildPublishedAfterDate(period) {
+  return new Date(buildPublishedAfter(period));
+}
+
 function normalize(value, min, max) {
   if (max === min) return 0;
   return (value - min) / (max - min);
@@ -87,6 +91,7 @@ export default {
       .filter(Boolean);
 
     const publishedAfter = buildPublishedAfter(period);
+    const publishedAfterDate = buildPublishedAfterDate(period);
     const searchParams = new URLSearchParams({
       key: apiKey,
       part: "snippet",
@@ -104,9 +109,194 @@ export default {
     try {
       const searchUrl = `${YT_API_BASE}/search?${searchParams.toString()}`;
       const searchData = await fetchJson(searchUrl);
-      const videoIds = (searchData.items || [])
+      let videoIds = (searchData.items || [])
         .map((item) => item.id && item.id.videoId)
         .filter(Boolean);
+
+      if (!videoIds.length) {
+        const popularParams = new URLSearchParams({
+          key: apiKey,
+          part: "snippet,statistics,status,contentDetails",
+          chart: "mostPopular",
+          maxResults: "50",
+          regionCode: region
+        });
+        if (categoryId) {
+          popularParams.set("videoCategoryId", categoryId);
+        }
+        const popularUrl = `${YT_API_BASE}/videos?${popularParams.toString()}`;
+        const popularData = await fetchJson(popularUrl);
+        const popularItems = popularData.items || [];
+        const recentPopularItems = popularItems.filter((video) => {
+          if (!video.snippet || !video.snippet.publishedAt) return false;
+          const publishedAt = new Date(video.snippet.publishedAt);
+          return publishedAt >= publishedAfterDate;
+        });
+
+        if (!recentPopularItems.length) {
+          return withCors({ items: [], fetchedAt: new Date().toISOString() });
+        }
+
+        const now = new Date();
+        let items = recentPopularItems.map((video) => {
+          const snippet = video.snippet || {};
+          const statistics = video.statistics || {};
+          const status = video.status || {};
+          const publishedAt = snippet.publishedAt
+            ? new Date(snippet.publishedAt)
+            : now;
+          const daysSince = Math.max(
+            1,
+            (now.getTime() - publishedAt.getTime()) / (24 * 60 * 60 * 1000)
+          );
+
+          const views = safeInt(statistics.viewCount);
+          const likes = safeInt(statistics.likeCount);
+          const comments = safeInt(statistics.commentCount);
+          const likeRate = likes / Math.max(views, 1);
+          const viewVelocity = views / daysSince;
+
+          return {
+            id: video.id,
+            title: snippet.title || "",
+            channel: snippet.channelTitle || "",
+            thumbnail:
+              (snippet.thumbnails &&
+                (snippet.thumbnails.medium || snippet.thumbnails.default) &&
+                (snippet.thumbnails.medium || snippet.thumbnails.default).url) ||
+              "",
+            uploadDate: snippet.publishedAt
+              ? snippet.publishedAt.split("T")[0]
+              : "",
+            metrics: {
+              views,
+              likes,
+              comments,
+              likeRate,
+              viewVelocity,
+              subscribers: 0,
+              daysSince
+            },
+            status: {
+              privacyStatus: status.privacyStatus,
+              uploadStatus: status.uploadStatus,
+              embeddable: status.embeddable
+            },
+            description: snippet.description || ""
+          };
+        });
+
+        items = items.filter((item) => {
+          const status = item.status || {};
+          return (
+            status.privacyStatus === "public" &&
+            status.uploadStatus === "processed" &&
+            status.embeddable !== false
+          );
+        });
+
+        if (excludeKeywords.length) {
+          items = items.filter((item) => {
+            const text = `${item.title} ${item.description}`.toLowerCase();
+            return !excludeKeywords.some((keyword) =>
+              text.includes(keyword.toLowerCase())
+            );
+          });
+        }
+
+        const viewsValues = items.map((item) => item.metrics.views);
+        const likesValues = items.map((item) => item.metrics.likes);
+        const commentsValues = items.map((item) => item.metrics.comments);
+        const likeRateValues = items.map((item) => item.metrics.likeRate);
+        const velocityValues = items.map((item) => item.metrics.viewVelocity);
+
+        const ranges = {
+          views: {
+            min: Math.min(...viewsValues, 0),
+            max: Math.max(...viewsValues, 0)
+          },
+          likes: {
+            min: Math.min(...likesValues, 0),
+            max: Math.max(...likesValues, 0)
+          },
+          comments: {
+            min: Math.min(...commentsValues, 0),
+            max: Math.max(...commentsValues, 0)
+          },
+          likeRate: {
+            min: Math.min(...likeRateValues, 0),
+            max: Math.max(...likeRateValues, 0)
+          },
+          viewVelocity: {
+            min: Math.min(...velocityValues, 0),
+            max: Math.max(...velocityValues, 0)
+          }
+        };
+
+        const periodDays =
+          period === "today" ? 1 : period === "3d" ? 3 : period === "30d" ? 30 : 7;
+
+        items = items.map((item) => {
+          const metrics = item.metrics;
+          const recencyBoost = 1 - Math.min(1, metrics.daysSince / periodDays);
+          const scoreHot =
+            0.45 *
+              normalize(
+                metrics.viewVelocity,
+                ranges.viewVelocity.min,
+                ranges.viewVelocity.max
+              ) +
+            0.2 *
+              normalize(
+                metrics.comments,
+                ranges.comments.min,
+                ranges.comments.max
+              ) +
+            0.15 *
+              normalize(
+                metrics.likeRate,
+                ranges.likeRate.min,
+                ranges.likeRate.max
+              ) +
+            0.2 * recencyBoost;
+          const scoreStable =
+            0.5 * normalize(metrics.views, ranges.views.min, ranges.views.max) +
+            0.25 *
+              normalize(metrics.likes, ranges.likes.min, ranges.likes.max) +
+            0.15 *
+              normalize(
+                metrics.comments,
+                ranges.comments.min,
+                ranges.comments.max
+              ) +
+            0.1 *
+              normalize(
+                metrics.likeRate,
+                ranges.likeRate.min,
+                ranges.likeRate.max
+              );
+
+          return {
+            id: item.id,
+            title: item.title,
+            channel: item.channel,
+            thumbnail: item.thumbnail,
+            uploadDate: item.uploadDate,
+            metrics: {
+              views: metrics.views,
+              likes: metrics.likes,
+              comments: metrics.comments,
+              likeRate: metrics.likeRate,
+              viewVelocity: metrics.viewVelocity,
+              subscribers: 0
+            },
+            score: mode === "stable" ? scoreStable : scoreHot
+          };
+        });
+
+        items.sort((a, b) => b.score - a.score);
+        return withCors({ items, fetchedAt: now.toISOString() });
+      }
 
       if (!videoIds.length) {
         return withCors({ items: [], fetchedAt: new Date().toISOString() });
