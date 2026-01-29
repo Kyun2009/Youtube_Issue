@@ -34,6 +34,7 @@ const apiCache = new Map();
 const VIDEOS_PER_LOAD = 24;
 let loadedVideosCount = 0;
 let isRendering = false;
+let filterRequestId = 0;
 let observer;
 const DEFAULT_API_ENDPOINT = '/api';
 const FALLBACK_API_ENDPOINT = 'https://yt-feed-hub.pages.dev/api';
@@ -153,6 +154,7 @@ function setupInfiniteScrollObserver() {
 
 // --- 필터링 로직 ---
 async function filterVideos(period) {
+    const requestId = ++filterRequestId;
     currentFilter = period;
     videoList.innerHTML = ''; // 새 필터 적용 시 목록 초기화
     loadedVideosCount = 0; // 로드된 개수 초기화
@@ -167,6 +169,7 @@ async function filterVideos(period) {
         if (!apiVideos.length && period === 'today') {
             apiVideos = await fetchVideos(period, currentMode, { cacheBuster: Date.now() });
         }
+        if (requestId !== filterRequestId) return;
         if (apiVideos.length) {
             apiCache.set(cacheKey, apiVideos);
             currentFilteredVideos = apiVideos;
@@ -176,6 +179,7 @@ async function filterVideos(period) {
             currentFilteredVideos = filterVideosByPeriod(sampleVideos, period);
         }
     } catch (error) {
+        if (requestId !== filterRequestId) return;
         if (apiCache.has(cacheKey)) {
             currentFilteredVideos = apiCache.get(cacheKey);
         } else {
