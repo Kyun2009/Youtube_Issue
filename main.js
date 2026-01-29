@@ -34,7 +34,10 @@ const VIDEOS_PER_LOAD = 24;
 let loadedVideosCount = 0;
 let isRendering = false;
 let observer;
-const API_ENDPOINT = '/api';
+const DEFAULT_API_ENDPOINT = '/api';
+const FALLBACK_API_ENDPOINT = 'https://yt-feed-hub.pages.dev/api';
+const isFirebaseHost = /(?:web\.app|firebaseapp\.com)$/.test(window.location.hostname);
+const API_ENDPOINT = isFirebaseHost ? FALLBACK_API_ENDPOINT : DEFAULT_API_ENDPOINT;
 
 const browserLanguage = (navigator.language || 'en').split('-')[0];
 const FILTER_CONFIG = {
@@ -237,7 +240,11 @@ async function fetchVideos(period, mode) {
         params.set('excludeKeywords', FILTER_CONFIG.excludeKeywords.join(','));
     }
 
-    const response = await fetch(`${API_ENDPOINT}?${params.toString()}`);
+    const requestUrl = `${API_ENDPOINT}?${params.toString()}`;
+    let response = await fetch(requestUrl);
+    if (!response.ok && !isFirebaseHost && API_ENDPOINT === DEFAULT_API_ENDPOINT) {
+        response = await fetch(`${FALLBACK_API_ENDPOINT}?${params.toString()}`);
+    }
     if (!response.ok) {
         throw new Error('API request failed');
     }
