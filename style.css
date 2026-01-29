@@ -95,6 +95,14 @@ main.container {
     overflow: hidden;
 }
 
+#video-list[data-period="today"] .card-img-top {
+    height: 320px;
+}
+
+#video-list[data-period="today"] .card-title {
+    font-size: 20px;
+}
+
 #video-list .card:hover {
     transform: translateY(-4px);
     box-shadow: var(--shadow);

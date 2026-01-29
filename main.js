@@ -29,7 +29,7 @@ const modeStable = document.getElementById('mode-stable');
 let currentFilter = 'today';
 let currentMode = 'hot';
 let currentFilteredVideos = [];
-const VIDEOS_PER_LOAD = 8;
+const VIDEOS_PER_LOAD = 16;
 let loadedVideosCount = 0;
 let isRendering = false;
 const API_ENDPOINT = '/api';
@@ -132,6 +132,7 @@ async function filterVideos(period) {
     currentFilter = period;
     videoList.innerHTML = ''; // 새 필터 적용 시 목록 초기화
     loadedVideosCount = 0; // 로드된 개수 초기화
+    videoList.dataset.period = period;
     
     videoList.innerHTML = '<p class="text-center text-muted">로딩 중...</p>';
 
@@ -154,10 +155,12 @@ function renderNewVideos(videos) {
         return;
     }
 
+    const columnClass =
+        currentFilter === 'today' ? 'col-12 col-md-6 col-lg-6' : 'col-md-4 col-lg-3';
     const videoCards = videos.map(video => {
         const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
         return `
-        <div class="col-md-4 col-lg-3 mb-4">
+        <div class="${columnClass} mb-4">
             <a href="${videoUrl}" target="_blank" class="card-link text-decoration-none text-dark" data-video-id="${video.id}">
                 <div class="card h-100">
                     <img src="${video.thumbnail}" class="card-img-top" alt="${video.title}">
