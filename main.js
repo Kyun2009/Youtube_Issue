@@ -32,7 +32,7 @@ let currentFilteredVideos = [];
 const VIDEOS_PER_LOAD = 8;
 let loadedVideosCount = 0;
 let isRendering = false;
-const API_ENDPOINT = 'https://yt-feed-hub.tjdrbs28.workers.dev';
+const API_ENDPOINT = '/api';
 
 const browserLanguage = (navigator.language || 'en').split('-')[0];
 const FILTER_CONFIG = {
@@ -43,6 +43,60 @@ const FILTER_CONFIG = {
     maxSubs: 0,
     excludeKeywords: []
 };
+
+function parseVideoDate(dateValue) {
+    if (!dateValue) return null;
+    if (dateValue instanceof Date) return isNaN(dateValue) ? null : dateValue;
+    if (typeof dateValue === 'number') {
+        const parsed = new Date(dateValue);
+        return isNaN(parsed) ? null : parsed;
+    }
+    if (typeof dateValue !== 'string') return null;
+    const trimmed = dateValue.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes('T')) {
+        const parsed = new Date(trimmed);
+        return isNaN(parsed) ? null : parsed;
+    }
+    const parts = trimmed.split('-').map(Number);
+    if (parts.length === 3 && parts.every(Number.isFinite)) {
+        const [year, month, day] = parts;
+        const parsed = new Date(year, month - 1, day);
+        return isNaN(parsed) ? null : parsed;
+    }
+    const parsed = new Date(trimmed);
+    return isNaN(parsed) ? null : parsed;
+}
+
+function getVideoDate(video) {
+    return (
+        parseVideoDate(video.uploadDate) ||
+        parseVideoDate(video.publishedAt) ||
+        parseVideoDate(video.publishDate) ||
+        null
+    );
+}
+
+function filterVideosByPeriod(videos, period) {
+    const periodHoursMap = {
+        today: 24,
+        '3d': 24 * 3,
+        '7d': 24 * 7,
+        '30d': 24 * 30
+    };
+    const hours = periodHoursMap[period];
+    if (!hours) return videos;
+
+    const now = new Date();
+    const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    const end = now;
+
+    return videos.filter(video => {
+        const videoDate = getVideoDate(video);
+        if (!videoDate) return false;
+        return videoDate >= start && videoDate <= end;
+    });
+}
 
 // --- 유틸리티 함수 ---
 function debounce(func, delay) {
@@ -83,9 +137,10 @@ async function filterVideos(period) {
 
     try {
         const apiVideos = await fetchVideos(period, currentMode);
-        currentFilteredVideos = apiVideos.length ? apiVideos : sampleVideos;
+        const sourceVideos = apiVideos.length ? apiVideos : sampleVideos;
+        currentFilteredVideos = filterVideosByPeriod(sourceVideos, period);
     } catch (error) {
-        currentFilteredVideos = sampleVideos;
+        currentFilteredVideos = filterVideosByPeriod(sampleVideos, period);
     }
 
     videoList.innerHTML = '';

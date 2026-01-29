@@ -7,16 +7,14 @@ function safeInt(value) {
 
 function buildPublishedAfter(period) {
   const now = new Date();
-  let start;
-  if (period === "today") {
-    start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  } else if (period === "3d") {
-    start = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-  } else if (period === "30d") {
-    start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  } else {
-    start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  }
+  const hoursMap = {
+    today: 24,
+    "3d": 24 * 3,
+    "7d": 24 * 7,
+    "30d": 24 * 30
+  };
+  const hours = hoursMap[period] || hoursMap["7d"];
+  const start = new Date(now.getTime() - hours * 60 * 60 * 1000);
   return start.toISOString();
 }
 
