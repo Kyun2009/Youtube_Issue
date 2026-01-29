@@ -25,13 +25,15 @@ const filter7d = document.getElementById('filter-7d');
 const filter30d = document.getElementById('filter-30d');
 const modeHot = document.getElementById('mode-hot');
 const modeStable = document.getElementById('mode-stable');
+const scrollSentinel = document.getElementById('scroll-sentinel');
 
 let currentFilter = 'today';
 let currentMode = 'hot';
 let currentFilteredVideos = [];
-const VIDEOS_PER_LOAD = 16;
+const VIDEOS_PER_LOAD = 24;
 let loadedVideosCount = 0;
 let isRendering = false;
+let observer;
 const API_ENDPOINT = '/api';
 
 const browserLanguage = (navigator.language || 'en').split('-')[0];
@@ -127,6 +129,24 @@ function loadNextVideos() {
     isRendering = false;
 }
 
+function setupInfiniteScrollObserver() {
+    if (!scrollSentinel) return;
+    if (observer) observer.disconnect();
+
+    observer = new IntersectionObserver(
+        entries => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting && loadedVideosCount < currentFilteredVideos.length) {
+                    loadNextVideos();
+                }
+            });
+        },
+        { root: null, rootMargin: '400px 0px', threshold: 0 }
+    );
+
+    observer.observe(scrollSentinel);
+}
+
 // --- 필터링 로직 ---
 async function filterVideos(period) {
     currentFilter = period;
@@ -138,8 +158,11 @@ async function filterVideos(period) {
 
     try {
         const apiVideos = await fetchVideos(period, currentMode);
-        const sourceVideos = apiVideos.length ? apiVideos : sampleVideos;
-        currentFilteredVideos = filterVideosByPeriod(sourceVideos, period);
+        if (apiVideos.length) {
+            currentFilteredVideos = apiVideos;
+        } else {
+            currentFilteredVideos = filterVideosByPeriod(sampleVideos, period);
+        }
     } catch (error) {
         currentFilteredVideos = filterVideosByPeriod(sampleVideos, period);
     }
@@ -155,8 +178,7 @@ function renderNewVideos(videos) {
         return;
     }
 
-    const columnClass =
-        currentFilter === 'today' ? 'col-12 col-md-6 col-lg-6' : 'col-md-4 col-lg-3';
+    const columnClass = 'col-md-4 col-lg-3';
     const videoCards = videos.map(video => {
         const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
         return `
@@ -193,23 +215,6 @@ function checkVideoAvailability(video, cardContainer) {
         hideUnavailableCard(cardContainer);
     };
     img.src = video.thumbnail;
-
-    // 2) oEmbed 응답 실패 시 숨김 (CORS/네트워크 실패는 무시)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${video.id}&format=json`;
-
-    fetch(oembedUrl, { signal: controller.signal })
-        .then((res) => {
-            clearTimeout(timeoutId);
-            if (!res.ok) {
-                hideUnavailableCard(cardContainer);
-            }
-        })
-        .catch(() => {
-            clearTimeout(timeoutId);
-            // CORS/네트워크 오류는 필터링 정확도를 위해 무시
-        });
 }
 
 function hideUnavailableCard(cardContainer) {
@@ -244,6 +249,7 @@ async function fetchVideos(period, mode) {
 // --- 이벤트 리스너 ---
 document.addEventListener('DOMContentLoaded', () => {
     filterVideos(currentFilter); 
+    setupInfiniteScrollObserver();
 });
 
 filterToday.addEventListener('click', () => {
@@ -283,4 +289,4 @@ window.addEventListener('scroll', debounce(() => {
     if (isAtBottom && loadedVideosCount < currentFilteredVideos.length) {
         loadNextVideos();
     }
-}, 100));
+}, 100), { passive: true });

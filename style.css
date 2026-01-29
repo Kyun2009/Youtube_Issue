@@ -95,13 +95,7 @@ main.container {
     overflow: hidden;
 }
 
-#video-list[data-period="today"] .card-img-top {
-    height: 320px;
-}
-
-#video-list[data-period="today"] .card-title {
-    font-size: 20px;
-}
+/* Today uses the same sizing as other categories */
 
 #video-list .card:hover {
     transform: translateY(-4px);
