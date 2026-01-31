@@ -1,7 +1,8 @@
 const DEFAULT_SOURCE_API = "https://yt-feed-hub.pages.dev/api";
 const PERIODS = ["today", "3d", "7d", "30d"];
 const MODES = ["hot", "stable"];
-const CACHE_TTL_SECONDS = 4 * 60 * 60 + 300;
+// 8 hours + 5 minutes to outlive the cron interval.
+const CACHE_TTL_SECONDS = 8 * 60 * 60 + 300;
 
 async function fetchAndCache(env, period, mode) {
   const baseUrl = env.SOURCE_API_ENDPOINT || DEFAULT_SOURCE_API;
@@ -25,6 +26,16 @@ async function fetchAndCache(env, period, mode) {
   await env.YT_CACHE.put(`cache:${period}:${mode}`, payload, {
     expirationTtl: CACHE_TTL_SECONDS
   });
+}
+
+async function extendExistingCache(env, period, mode) {
+  const key = `cache:${period}:${mode}`;
+  const cached = await env.YT_CACHE.get(key);
+  if (!cached) {
+    return;
+  }
+  // Keep the last successful payload alive until the next cron run.
+  await env.YT_CACHE.put(key, cached, { expirationTtl: CACHE_TTL_SECONDS });
 }
 
 async function handleApiRequest(request, env) {
@@ -59,7 +70,16 @@ export default {
     const tasks = [];
     for (const period of PERIODS) {
       for (const mode of MODES) {
-        tasks.push(fetchAndCache(env, period, mode));
+        tasks.push(
+          fetchAndCache(env, period, mode).catch(async (error) => {
+            console.warn("fetch failed, keeping old cache", {
+              period,
+              mode,
+              message: error && error.message ? error.message : String(error)
+            });
+            await extendExistingCache(env, period, mode);
+          })
+        );
       }
     }
     ctx.waitUntil(Promise.allSettled(tasks));
