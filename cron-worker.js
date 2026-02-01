@@ -71,6 +71,20 @@ async function handleApiRequest(request, env) {
   });
 }
 
+async function handleRefreshRequest(request, env) {
+  const url = new URL(request.url);
+  const period = url.searchParams.get("period") || "7d";
+  const mode = url.searchParams.get("mode") || "hot";
+  await fetchAndCache(env, period, mode);
+  return new Response(JSON.stringify({ ok: true, period, mode }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*"
+    }
+  });
+}
+
 export default {
   async scheduled(event, env, ctx) {
     console.log("cron fired", new Date().toISOString());
@@ -95,6 +109,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api")) {
       return handleApiRequest(request, env);
+    }
+    if (url.pathname.startsWith("/refresh")) {
+      return handleRefreshRequest(request, env);
     }
     return new Response("Not Found", { status: 404 });
   }
