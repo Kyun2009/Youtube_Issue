@@ -391,6 +391,28 @@ export async function onRequest(context) {
       videoItems = videoItems.concat(videosData.items || []);
     }
 
+    const targetCount = 50;
+    if (videoItems.length < targetCount) {
+      const popularParams = new URLSearchParams({
+        key: apiKey,
+        part: "snippet,statistics,status,contentDetails",
+        chart: "mostPopular",
+        maxResults: "50",
+        regionCode: region
+      });
+      if (categoryId) {
+        popularParams.set("videoCategoryId", categoryId);
+      }
+      const popularItems = await fetchPopularItems(popularParams, pages);
+      const existingIds = new Set(videoItems.map((video) => video.id));
+      for (const video of popularItems) {
+        if (!video || !video.id || existingIds.has(video.id)) continue;
+        videoItems.push(video);
+        existingIds.add(video.id);
+        if (videoItems.length >= targetCount) break;
+      }
+    }
+
     const channelIds = [
       ...new Set(
         videoItems
