@@ -138,7 +138,10 @@ export async function onRequest(context) {
   }
 
   const url = new URL(request.url);
-
+  const skipCache =
+    url.searchParams.get("cache") === "skip" ||
+    url.searchParams.get("cache") === "0" ||
+    request.headers.get("X-Cache-Bypass") === "1";
 
   const period = url.searchParams.get("period") || "7d";
   const mode = url.searchParams.get("mode") || "hot";
@@ -153,7 +156,7 @@ export async function onRequest(context) {
     .map((keyword) => keyword.trim())
     .filter(Boolean);
 
-  if (cacheEndpoint) {
+  if (cacheEndpoint && !skipCache) {
     const cacheUrl = new URL(cacheEndpoint);
     cacheUrl.searchParams.set("period", period);
     cacheUrl.searchParams.set("mode", mode);

@@ -11,12 +11,15 @@ async function fetchAndCache(env, period, mode) {
   url.searchParams.set("period", period);
   url.searchParams.set("mode", mode);
   url.searchParams.set("language", env.DEFAULT_LANGUAGE || "ko");
+  url.searchParams.set("cache", "skip");
   if (mode === "stable") {
     url.searchParams.set("pages", String(STABLE_PAGES));
   }
 
   console.log("fetch start", { period, mode, url: url.toString() });
-  const response = await fetch(url.toString());
+  const response = await fetch(url.toString(), {
+    headers: { "X-Cache-Bypass": "1" }
+  });
   if (!response.ok) {
     console.warn("fetch failed", { period, mode, status: response.status });
     throw new Error(`Source API error: ${response.status}`);
