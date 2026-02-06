@@ -31,8 +31,6 @@ let currentFilter = 'today';
 let currentMode = 'hot';
 let currentFilteredVideos = [];
 const apiCache = new Map();
-const videoById = new Map();
-const commentCache = new Map();
 const VIDEOS_PER_LOAD = 50;
 let loadedVideosCount = 0;
 let isRendering = false;
@@ -42,9 +40,6 @@ const DEFAULT_API_ENDPOINT = '/api';
 const FALLBACK_API_ENDPOINT = 'https://yt-feed-hub.pages.dev/api';
 const isPreviewHost = /(?:cloudworkstations.dev)$/.test(window.location.hostname);
 const API_ENDPOINT = isPreviewHost ? FALLBACK_API_ENDPOINT : DEFAULT_API_ENDPOINT;
-const COMMENTS_ENDPOINT = API_ENDPOINT.endsWith('/api')
-    ? API_ENDPOINT.replace(/\/api$/, '/comments')
-    : `${API_ENDPOINT.replace(/\/$/, '')}/comments`;
 
 const browserLanguage = (navigator.language || 'en').split('-')[0];
 const FILTER_CONFIG = {
@@ -187,7 +182,6 @@ async function filterVideos(period) {
     videoList.innerHTML = ''; // 새 필터 적용 시 목록 초기화
     loadedVideosCount = 0; // 로드된 개수 초기화
     isRendering = false;
-    videoById.clear();
     videoList.dataset.period = period;
     
     videoList.innerHTML = '<p class="text-center text-muted">로딩 중...</p>';
@@ -228,19 +222,19 @@ function renderNewVideos(videos) {
 
     const columnClass = 'col-md-4 col-lg-3';
     const videoCards = videos.map(video => {
-        videoById.set(video.id, video);
         const videoUrl = `https://www.youtube.com/watch?v=${video.id}`;
-        const rawComment = getRawComment(video);
-        const editorComment = escapeHtml(rawComment || '');
+        const title = escapeHtml(video.title || '유튜브 영상');
+        const channel = escapeHtml(video.channel || '');
+        const accessibleLabel = channel ? `${title} - ${channel}` : title;
         return `
         <div class="${columnClass} mb-4">
-            <a href="${videoUrl}" target="_blank" class="card-link text-decoration-none text-dark" 
-               data-video-id="${video.id}" aria-label="${editorComment}">
-                <div class="card h-100" data-video-id="${video.id}" data-editor-comment="${editorComment}">
-                    <img src="${video.thumbnail}" class="card-img-top" alt="${video.title}">
+            <a href="${videoUrl}" target="_blank" rel="noopener noreferrer" class="card-link text-decoration-none text-dark" 
+               data-video-id="${video.id}" aria-label="${accessibleLabel}">
+                <div class="card h-100" data-video-id="${video.id}">
+                    <img src="${video.thumbnail}" class="card-img-top" alt="${title}">
                     <div class="card-body d-flex flex-column">
-                        <h5 class="card-title">${video.title}</h5>
-                        <p class="card-text text-muted">${video.channel}</p>
+                        <h5 class="card-title">${title}</h5>
+                        <p class="card-text text-muted">${channel}</p>
                     </div>
                 </div>
             </a>
@@ -248,18 +242,6 @@ function renderNewVideos(videos) {
     `}).join('');
 
     videoList.insertAdjacentHTML('beforeend', videoCards);
-}
-
-function getRawComment(video) {
-    const candidates = [
-        video.comment,
-        video.editorComment,
-        video.editor_comment,
-        video.editorNote,
-        video.note
-    ];
-    const raw = candidates.find(value => typeof value === 'string' && value.trim().length > 0);
-    return raw || '';
 }
 
 function escapeHtml(value) {
@@ -271,79 +253,6 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-function generateAutoComment(video) {
-    const title = (video.title || '').trim();
-    const channel = (video.channel || '').trim();
-    const date = getVideoDate(video);
-    const label = getKeywordLabel(title);
-
-    const parts = [];
-    parts.push(`[${label}]`);
-    if (title) parts.push(title);
-    if (channel) parts.push(channel);
-    if (date) parts.push(formatDateKorean(date));
-
-    return parts.join(' · ') || '에디터 코멘트가 없습니다.';
-}
-
-function getKeywordLabel(title) {
-    const text = (title || '').toLowerCase();
-    if (/(뮤비|뮤직비디오|music video|\bmv\b)/i.test(text)) return '뮤비';
-    if (/(라이브|live)/i.test(text)) return '라이브';
-    if (/(챌린지|challenge)/i.test(text)) return '챌린지';
-    return '영상';
-}
-
-function formatDateKorean(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}.${month}.${day}`;
-}
-
-function ensureEditorComment(cardEl) {
-    if (!cardEl || !(cardEl instanceof HTMLElement)) return;
-    const current = cardEl.dataset.editorComment || '';
-    if (current.trim().length > 0) return;
-    const videoId = cardEl.dataset.videoId;
-    if (!videoId) return;
-    const video = videoById.get(videoId);
-    if (!video) return;
-    const cached = commentCache.get(videoId);
-    if (cached) {
-        cardEl.dataset.editorComment = cached;
-        const link = cardEl.closest('a');
-        if (link) link.setAttribute('aria-label', cached);
-        return;
-    }
-    const loadingText = escapeHtml('인기 댓글 불러오는 중...');
-    cardEl.dataset.editorComment = loadingText;
-    const link = cardEl.closest('a');
-    if (link) link.setAttribute('aria-label', loadingText);
-    fetchTopComment(videoId)
-        .then(comment => {
-            const next = comment || escapeHtml('인기 댓글이 없습니다');
-            commentCache.set(videoId, next);
-            cardEl.dataset.editorComment = next;
-            if (link) link.setAttribute('aria-label', next);
-        })
-        .catch(() => {
-            const fallback = escapeHtml('인기 댓글이 없습니다');
-            commentCache.set(videoId, fallback);
-            cardEl.dataset.editorComment = fallback;
-            if (link) link.setAttribute('aria-label', fallback);
-        });
-}
-
-async function fetchTopComment(videoId) {
-    if (!videoId) return '';
-    const params = new URLSearchParams({ videoId });
-    const response = await fetch(`${COMMENTS_ENDPOINT}?${params.toString()}`);
-    if (!response.ok) return '';
-    const data = await response.json();
-    const comment = data && typeof data.comment === 'string' ? data.comment : '';
-    return escapeHtml(comment);
-}
 
 
 async function fetchVideos(period, mode, options = {}) {
@@ -385,16 +294,6 @@ async function fetchVideos(period, mode, options = {}) {
 document.addEventListener('DOMContentLoaded', () => {
     filterVideos(currentFilter); 
     setupInfiniteScrollObserver();
-    videoList.addEventListener('mouseover', event => {
-        const card = event.target.closest('.card');
-        if (!card || !videoList.contains(card)) return;
-        ensureEditorComment(card);
-    });
-    videoList.addEventListener('focusin', event => {
-        const card = event.target.closest('.card');
-        if (!card || !videoList.contains(card)) return;
-        ensureEditorComment(card);
-    });
 });
 
 filterToday.addEventListener('click', () => {
